@@ -36,7 +36,7 @@ function _M:resetSequential()
 end
 
 function _M:__call()
-    local n = setmetatable({}, NUID)
+    local n = setmetatable({}, _M)
     n:resetSequential()
     n:randomizePrefix()
     return n
