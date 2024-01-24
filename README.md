@@ -1,5 +1,5 @@
 # lua-nuid
 
-NATS NUID Implementation in Lua
+NATS NUID Implementation in LuaJIT
 -
 Reference: https://github.com/nats-io/nuid
