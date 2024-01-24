@@ -62,13 +62,15 @@ function _M:next()
 
 	return ffi.string(b, totalLen)
 end
+_M.__call = _M.next
 
 -- Test
 -- local n = 1
 -- while n < 5 do
 	-- print("-- new nuid")
 	-- local s, nid = 1, nuid()
-	-- while s < 10 do
+	-- while s < 5 do
+		-- print(nid())
 		-- print(nid:next())
 		-- s = s + 1
 	-- end
