@@ -21,6 +21,7 @@ local maxInc = 333
 local totalLen = preLen + seqLen
 
 local _M = {}
+_M.__index = _M
 
 function _M:randomizePrefix()
     local pre = ffi.new("char[?]", preLen)
@@ -36,10 +37,10 @@ function _M:resetSequential()
 end
 
 function _M:__call()
-    local n = setmetatable({}, _M)
-    n:resetSequential()
-    n:randomizePrefix()
-    return n
+    local o = setmetatable({}, _M)
+    o:resetSequential()
+    o:randomizePrefix()
+    return o
 end
 
 function _M:next()
