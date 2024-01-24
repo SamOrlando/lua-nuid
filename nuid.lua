@@ -8,7 +8,7 @@ ffi.cdef[[
 ]]
 C.srand(os.time())
 local function rand()
-    return C.rand()
+	return C.rand()
 end
 
 local digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -23,49 +23,56 @@ local totalLen = preLen + seqLen
 local _M = {}
 _M.__index = _M
 
+local function nuid()
+	local o = setmetatable({}, _M)
+	o:resetSequential()
+	o:randomizePrefix()
+	return o
+end
+
 function _M:randomizePrefix()
-    local pre = ffi.new("char[?]", preLen)
-    for i = 0, preLen - 1 do
-        pre[i] = digits:byte(rand() % base + 1)
-    end
-    self.pre = ffi.string(pre, preLen)
+	local pre = ffi.new("char[?]", preLen)
+	for i = 0, preLen - 1 do
+		pre[i] = digits:byte(rand() % base + 1)
+	end
+	self.pre = ffi.string(pre, preLen)
 end
 
 function _M:resetSequential()
-    self.seq = rand() % maxSeq
-    self.inc = minInc + rand() % (maxInc - minInc)
-end
-
-function _M:__call()
-    local o = setmetatable({}, _M)
-    o:resetSequential()
-    o:randomizePrefix()
-    return o
+	self.seq = rand() % maxSeq
+	self.inc = minInc + rand() % (maxInc - minInc)
 end
 
 function _M:next()
-    self.seq = self.seq + self.inc
-    if self.seq >= maxSeq then
-        self:randomizePrefix()
-        self:resetSequential()
-    end
-    local seq = self.seq
+	self.seq = self.seq + self.inc
+	if self.seq >= maxSeq then
+		self:randomizePrefix()
+		self:resetSequential()
+	end
+	local seq = self.seq
 
-    local b = ffi.new("char[?]", totalLen)
-    ffi.copy(b, self.pre)
+	local b = ffi.new("char[?]", totalLen)
+	ffi.copy(b, self.pre)
 
-    for i = totalLen - 1, preLen, -1 do
-        local index = seq % base + 1
-        b[i] = digits:byte(index)
-        seq = bit.rshift(seq, base)
-    end
+	for i = totalLen - 1, preLen, -1 do
+		local index = seq % base + 1
+		b[i] = digits:byte(index)
+		seq = bit.rshift(seq, base)
+	end
 
-    return ffi.string(b, totalLen)
+	return ffi.string(b, totalLen)
 end
 
 -- Test
-print(_M():next())
-print(_M():next())
+-- local n = 1
+-- while n < 5 do
+	-- print("-- new nuid")
+	-- local s, nid = 1, nuid()
+	-- while s < 10 do
+		-- print(nid:next())
+		-- s = s + 1
+	-- end
+	-- n = n + 1
+-- end
 
-
-return _M
+return nuid
