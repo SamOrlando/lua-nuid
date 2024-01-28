@@ -79,4 +79,11 @@ _M.__call = _M.next
 --	n = n + 1
 --end
 
+--15 million nuid
+--# time luajit modules/nuid.lua
+--real    0m1.326s
+--user    0m1.326s
+--sys     0m0.000s
+
+
 return nuid
