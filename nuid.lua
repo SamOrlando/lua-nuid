@@ -1,80 +1,82 @@
-local bit = require("bit")
+local _M = {}
+_M.__index = _M
+
 local ffi = require("ffi")
 local C = ffi.C
+local bit_rshift = require("bit").rshift
 
 ffi.cdef[[
 	void srand(unsigned int seed);
 	int rand(void);
 ]]
 C.srand(os.time())
-local function rand()
-	return C.rand()
-end
+local function rand() return C.rand() end
 
 local digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-local base = 62
-local preLen = 12
-local seqLen = 10
-local maxSeq = 839299365868340224
-local minInc = 33
-local maxInc = 333
-local totalLen = preLen + seqLen
+local floor = math.floor
 
-local _M = {}
-_M.__index = _M
-
-local function nuid()
-	local o = setmetatable({}, _M)
+local function nuid(opts)
+	if type(opts) ~= "table" then opts = {} end
+	local o = setmetatable({
+		digits = opts.digits or digits,
+		base = opts.base or 62,
+		preLen = opts.preLen or 12,
+		seqLen = opts.seqLen or 10,
+		minInc = opts.minInc or 33,
+		maxInc = opts.maxInc or 333,
+	}, _M)
+	o.totalLen = o.preLen + o.seqLen
+	o.maxSeq = o.base ^ o.seqLen
 	o:resetSequential()
 	o:randomizePrefix()
 	return o
 end
 
 function _M:randomizePrefix()
-	local pre = ffi.new("char[?]", preLen)
-	for i = 0, preLen - 1 do
-		pre[i] = digits:byte(rand() % base + 1)
+	local pre = ffi.new("char[?]", self.preLen)
+	local digits = self.digits
+	for i = 0, self.preLen - 1 do
+		pre[i] = digits:byte((rand() % self.base) + 1)
 	end
-	self.pre = ffi.string(pre, preLen)
+	self.pre = ffi.string(pre, self.preLen)
 end
 
 function _M:resetSequential()
-	self.seq = rand() % maxSeq
-	self.inc = minInc + rand() % (maxInc - minInc)
+	self.seq = rand() % self.maxSeq
+	self.inc = self.minInc + (rand() % (self.maxInc - self.minInc))
 end
 
 function _M:next()
 	self.seq = self.seq + self.inc
-	if self.seq >= maxSeq then
+	if self.seq >= self.maxSeq then
 		self:randomizePrefix()
 		self:resetSequential()
 	end
-	local seq = self.seq
 
-	local b = ffi.new("char[?]", totalLen)
+	local b = ffi.new("char[?]", self.totalLen)
 	ffi.copy(b, self.pre)
 
-	for i = totalLen - 1, preLen, -1 do
-		local index = seq % base + 1
-		b[i] = digits:byte(index)
-		seq = bit.rshift(seq, base)
-	end
+	local seq, digits, base, rem = self.seq, self.digits, self.base, 1
+    for i = self.totalLen - 1, self.preLen, -1 do
+        rem = seq % self.base
+        seq = bit_rshift(seq, 1)
+        b[i] = digits:byte(rem + 1)
+    end
 
-	return ffi.string(b, totalLen)
+	return ffi.string(b, self.totalLen)
 end
 _M.__call = _M.next
 
 -- Test
--- local n = 1
--- while n < 5 do
-	-- print("-- new nuid")
-	-- local s, nid = 1, nuid()
-	-- while s < 5 do
-		-- print(nid())
-		-- print(nid:next())
-		-- s = s + 1
-	-- end
-	-- n = n + 1
--- end
+-- local n, total = 1, 0
+-- while n < 1500 do
+--	local s, nid = 1, nuid()
+--	--print("-- new nuid: " .. nid())
+--	while s < 10000 do
+--		nid()
+--		s = s + 1
+--	end
+--	n = n + 1
+--end
 
 return nuid
