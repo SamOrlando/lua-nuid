@@ -13,7 +13,6 @@ C.srand(os.time())
 local function rand() return C.rand() end
 
 local digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-local floor = math.floor
 
 local function nuid(opts)
 	if type(opts) ~= "table" then opts = {} end
@@ -79,11 +78,9 @@ _M.__call = _M.next
 --	n = n + 1
 --end
 
---15 million nuid
---# time luajit modules/nuid.lua
+--# time luajit modules/nuid.lua (i7-4790K)
 --real    0m1.326s
 --user    0m1.326s
 --sys     0m0.000s
-
 
 return nuid
