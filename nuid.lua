@@ -56,11 +56,11 @@ function _M:next()
 	ffi.copy(b, self.pre)
 
 	local seq, digits, base, rem = self.seq, self.digits, self.base, 1
-    for i = self.totalLen - 1, self.preLen, -1 do
-        rem = seq % self.base
-        seq = bit_rshift(seq, 1)
-        b[i] = digits:byte(rem + 1)
-    end
+	for i = self.totalLen - 1, self.preLen, -1 do
+		rem = seq % self.base
+		seq = bit_rshift(seq, 1)
+		b[i] = digits:byte(rem + 1)
+	end
 
 	return ffi.string(b, self.totalLen)
 end
