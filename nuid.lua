@@ -12,8 +12,8 @@ C.srand(ffi.cast("unsigned int", os.time()))
 local function rand() return C.rand() end
 local function rand64()
 	local high = rand()  -- Generate the high 32 bits
-    local low = rand()   -- Generate the low 32 bits
-    return ffi.new("int64_t", high) * (2^32) + low
+	local low = rand()   -- Generate the low 32 bits
+	return ffi.new("int64_t", high) * (2^32) + low
 end
 
 local digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
