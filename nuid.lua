@@ -9,6 +9,7 @@ ffi.cdef[[
 	typedef long long int64_t;  // Define a 64-bit integer type
 ]]
 C.srand(ffi.cast("unsigned int", os.time()))
+
 local function rand() return C.rand() end
 local function rand64()
 	local high = rand()  -- Generate the high 32 bits
