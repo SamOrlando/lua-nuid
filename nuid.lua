@@ -25,12 +25,12 @@ local _M = {}
 _M.__index = _M
 
 local function nuid(opts)
-	opts = opts or {}
+	if type(opts) ~= "table" then opts = {} end
 	local o = setmetatable({
-	preLen = opts.preLen or 14,
-	seqLen = opts.seqLen or 8,
-	minInc = opts.minInc or 33,
-	maxInc = opts.maxInc or 333,
+		preLen = opts.preLen or 14, -- set 14 to meet 22=14+8 
+		seqLen = opts.seqLen or 8, -- set to 8 or lower to prevent lua number failures (52bit rep)
+		minInc = opts.minInc or 33,
+		maxInc = opts.maxInc or 333,
 	}, _M)
 	o.totalLen = o.preLen + o.seqLen
 	o:resetSequential()
@@ -52,7 +52,7 @@ end
 
 function _M:resetSequential()
 	self.maxSeq = self.seqLen > 0 and base ^ self.seqLen or 1
-	self.seq = (self.seqLen > 0) and tonumber(rand64()) % self.maxSeq or 1 -- Lua numbers...
+	self.seq = self.seqLen > 0 and tonumber(rand64()) % self.maxSeq or 1
 	self.inc = rand() % (self.maxInc - self.minInc + 1) + self.minInc
 end
 
@@ -71,9 +71,9 @@ function _M:next()
 	ffi.copy(str, self.pre)
 
 	if self.seqLen > 0 then
-		local seq = self.seq
+		local seq, rem = self.seq, nil
 		for i = self.totalLen - 1, self.preLen, -1 do
-			local rem = seq % base
+			rem = seq % base
 			seq = floor(seq / base)
 			str[i] = digitBytes[rem]
 		end
