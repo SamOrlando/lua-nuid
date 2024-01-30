@@ -1,86 +1,86 @@
-local _M = {}
-_M.__index = _M
-
 local ffi = require("ffi")
 local C = ffi.C
-local bit_rshift = require("bit").rshift
+local floor = math.floor
+local concat = table.concat
 
 ffi.cdef[[
 	void srand(unsigned int seed);
 	int rand(void);
+	typedef long long int64_t;  // Define a 64-bit integer type
 ]]
-C.srand(os.time())
+C.srand(ffi.cast("unsigned int", os.time()))
 local function rand() return C.rand() end
+local function rand64()
+	local high = rand()  -- Generate the high 32 bits
+    local low = rand()   -- Generate the low 32 bits
+    return ffi.new("int64_t", high) * (2^32) + low
+end
 
 local digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+local base = #digits
+local digitBytes = ffi.new("uint8_t[?]", base + 1)
+ffi.copy(digitBytes, digits)
+
+local _M = {}
+_M.__index = _M
 
 local function nuid(opts)
-	if type(opts) ~= "table" then opts = {} end
+	opts = opts or {}
 	local o = setmetatable({
-		digits = opts.digits or digits,
-		base = opts.base or 62,
-		preLen = opts.preLen or 12,
-		seqLen = opts.seqLen or 10,
-		minInc = opts.minInc or 33,
-		maxInc = opts.maxInc or 333,
+	preLen = opts.preLen or 14,
+	seqLen = opts.seqLen or 8,
+	minInc = opts.minInc or 33,
+	maxInc = opts.maxInc or 333,
 	}, _M)
 	o.totalLen = o.preLen + o.seqLen
-	o.maxSeq = o.base ^ o.seqLen
 	o:resetSequential()
 	o:randomizePrefix()
 	return o
 end
 
 function _M:randomizePrefix()
-	local pre = ffi.new("char[?]", self.preLen)
-	local digits = self.digits
-	for i = 0, self.preLen - 1 do
-		pre[i] = digits:byte((rand() % self.base) + 1)
+	if self.preLen < 1 then
+		self.pre = ""
+		return
 	end
-	self.pre = ffi.string(pre, self.preLen)
+	local pre = ffi.new("char[?]", self.preLen + 1)
+	for i = 0, self.preLen - 1 do
+		pre[i] = digitBytes[rand() % base]
+	end
+	self.pre = ffi.string(pre, self.preLen + 1)
 end
 
 function _M:resetSequential()
-	self.seq = rand() % self.maxSeq
-	self.inc = self.minInc + (rand() % (self.maxInc - self.minInc))
+	self.maxSeq = self.seqLen > 0 and base ^ self.seqLen or 1
+	self.seq = (self.seqLen > 0) and tonumber(rand64()) % self.maxSeq or 1 -- Lua numbers...
+	self.inc = rand() % (self.maxInc - self.minInc + 1) + self.minInc
 end
 
 function _M:next()
-	self.seq = self.seq + self.inc
-	if self.seq >= self.maxSeq then
+	if self.seqLen > 0 then
+		self.seq = self.seq + self.inc
+		if self.seq >= self.maxSeq then
+			self:randomizePrefix()
+			self:resetSequential()
+		end
+	elseif self.preLen > 0 then
 		self:randomizePrefix()
-		self:resetSequential()
 	end
 
-	local b = ffi.new("char[?]", self.totalLen)
-	ffi.copy(b, self.pre)
+	local str = ffi.new("char[?]", self.totalLen + 1)
+	ffi.copy(str, self.pre)
 
-	local seq, digits, base, rem = self.seq, self.digits, self.base, 1
-	for i = self.totalLen - 1, self.preLen, -1 do
-		rem = seq % self.base
-		seq = bit_rshift(seq, 1)
-		b[i] = digits:byte(rem + 1)
+	if self.seqLen > 0 then
+		local seq = self.seq
+		for i = self.totalLen - 1, self.preLen, -1 do
+			local rem = seq % base
+			seq = floor(seq / base)
+			str[i] = digitBytes[rem]
+		end
 	end
 
-	return ffi.string(b, self.totalLen)
+	return ffi.string(str, self.totalLen)
 end
 _M.__call = _M.next
-
--- Test
--- local n, total = 1, 0
--- while n < 1500 do
---	local s, nid = 1, nuid()
---	--print("-- new nuid: " .. nid())
---	while s < 10000 do
---		nid()
---		s = s + 1
---	end
---	n = n + 1
---end
-
---# time luajit modules/nuid.lua (i7-4790K)
---real    0m1.326s
---user    0m1.326s
---sys     0m0.000s
 
 return nuid
