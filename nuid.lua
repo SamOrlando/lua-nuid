@@ -8,15 +8,14 @@ ffi.cdef[[
 	double floor(double x);
 ]]
 C.srand(ffi.cast("unsigned int", os.time()))
-
+local bit_lshift = require('bit').lshift
 local function rand() return C.rand() end
 local function floor(x) return C.floor(x) end
 local function rand64()
-    local high = ffi_cast("int64_t", rand()) * ffi_cast("int64_t", 2^32)  -- Shift high 32 bits
+    local high = bit_lshift(ffi_cast("int64_t", rand()), 32)
     local low = ffi_cast("int64_t", rand())
     return high + low
 end
-
 local concat = table.concat
 local tonumber = tonumber
 local digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -56,7 +55,7 @@ end
 
 function _M:resetSequential()
 	self.seq = rand64() % self.maxSeq
-    self.inc = rand() % (self.maxInc - self.minInc + 1) + self.minInc
+	self.inc = rand() % (self.maxInc - self.minInc + 1) + self.minInc
 end
 
 function _M:next()
