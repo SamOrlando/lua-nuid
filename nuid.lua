@@ -1,7 +1,6 @@
 local ffi = require("ffi")
 local C = ffi.C
-local concat = table.concat
-
+local ffi_cast = ffi.cast
 ffi.cdef[[
 	void srand(unsigned int seed);
 	int rand(void);
@@ -9,7 +8,7 @@ ffi.cdef[[
 	double floor(double x);
 ]]
 C.srand(ffi.cast("unsigned int", os.time()))
-local ffi_cast = ffi.cast
+
 local function rand() return C.rand() end
 local function floor(x) return C.floor(x) end
 local function rand64()
@@ -18,6 +17,8 @@ local function rand64()
     return high + low
 end
 
+local concat = table.concat
+local tonumber = tonumber
 local digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 local base = #digits
 local digitBytes = ffi.new("uint8_t[?]", base + 1)
@@ -55,7 +56,7 @@ end
 
 function _M:resetSequential()
 	self.seq = rand64() % self.maxSeq
-    self.inc = rand64() % ffi_cast("int64_t", self.maxInc - self.minInc + 1) + ffi_cast("int64_t", self.minInc)
+    self.inc = rand() % (self.maxInc - self.minInc + 1) + self.minInc
 end
 
 function _M:next()
