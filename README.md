@@ -32,6 +32,7 @@ print(id)
 
 -- Calling the generator will also produce the next result
 print(generator())
+  -- nataW3t1nKzs3iOIofD1Om
 ```
 
 ```lua
@@ -39,6 +40,10 @@ print(generator())
 local mailbox_nuid = nuid()
 local mailbox_nuid_tail = nuid({preLen=8,seqLen=0})
 function nats.create_inbox() return concat({'_INBOX.', mailbox_nuid(),".",mailbox_nuid_tail()}) end
+
+-- _INBOX.AKVlRx7reWcacdtRxHYjnc.nNWzXCMR
+-- _INBOX.AKVlRx7reWcacdtRxHYjhu.WxP4Bh8S
+-- _INBOX.AKVlRx7reWcacdtRxHYjcC.9bOjBFdf
 ```
 
 ### Customization
