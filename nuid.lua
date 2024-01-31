@@ -9,12 +9,11 @@ ffi.cdef[[
 	typedef long long int64_t;  // Define a 64-bit integer type
 ]]
 C.srand(ffi.cast("unsigned int", os.time()))
-
 local function rand() return C.rand() end
 local function rand64()
 	local high = rand()  -- Generate the high 32 bits
-	local low = rand()   -- Generate the low 32 bits
-	return ffi.new("int64_t", high) * (2^32) + low
+    local low = rand()   -- Generate the low 32 bits
+    return ffi.new("int64_t", high) * (2^32) + low
 end
 
 local digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -29,7 +28,7 @@ local function nuid(opts)
 	if type(opts) ~= "table" then opts = {} end
 	local o = setmetatable({
 		preLen = opts.preLen or 14, -- set 14 to meet 22=14+8 
-		seqLen = opts.seqLen or 8, -- set to 8 or lower to prevent lua number failures (52bit rep)
+		seqLen = opts.seqLen or 8, -- set to 8 or lower to prevent lua number failures (52bit rep) and the effort for int64 is not worth it...
 		minInc = opts.minInc or 33,
 		maxInc = opts.maxInc or 333,
 	}, _M)
