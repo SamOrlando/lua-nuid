@@ -1,19 +1,21 @@
 local ffi = require("ffi")
 local C = ffi.C
-local floor = math.floor
 local concat = table.concat
 
 ffi.cdef[[
 	void srand(unsigned int seed);
 	int rand(void);
-	typedef long long int64_t;  // Define a 64-bit integer type
+	typedef long long int64_t;
+	double floor(double x);
 ]]
 C.srand(ffi.cast("unsigned int", os.time()))
+local ffi_cast = ffi.cast
 local function rand() return C.rand() end
+local function floor(x) return C.floor(x) end
 local function rand64()
-	local high = rand()  -- Generate the high 32 bits
-    local low = rand()   -- Generate the low 32 bits
-    return ffi.new("int64_t", high) * (2^32) + low
+    local high = ffi_cast("int64_t", rand()) * ffi_cast("int64_t", 2^32)  -- Shift high 32 bits
+    local low = ffi_cast("int64_t", rand())
+    return high + low
 end
 
 local digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -27,11 +29,12 @@ _M.__index = _M
 local function nuid(opts)
 	if type(opts) ~= "table" then opts = {} end
 	local o = setmetatable({
-		preLen = opts.preLen or 14, -- set 14 to meet 22=14+8 
-		seqLen = opts.seqLen or 8, -- set to 8 or lower to prevent lua number failures (52bit rep) and the effort of int64 is not worth it...
+		preLen = opts.preLen or 12,
+		seqLen = opts.seqLen or 10, 
 		minInc = opts.minInc or 33,
 		maxInc = opts.maxInc or 333,
 	}, _M)
+	o.maxSeq = ffi.new("int64_t", base ^ o.seqLen)
 	o.totalLen = o.preLen + o.seqLen
 	o:resetSequential()
 	o:randomizePrefix()
@@ -45,15 +48,14 @@ function _M:randomizePrefix()
 	end
 	local pre = ffi.new("char[?]", self.preLen + 1)
 	for i = 0, self.preLen - 1 do
-		pre[i] = digitBytes[rand() % base]
+		pre[i] = digitBytes[tonumber(rand64() % base)]
 	end
 	self.pre = ffi.string(pre, self.preLen + 1)
 end
 
 function _M:resetSequential()
-	self.maxSeq = self.seqLen > 0 and base ^ self.seqLen or 1
-	self.seq = self.seqLen > 0 and tonumber(rand64()) % self.maxSeq or 1
-	self.inc = rand() % (self.maxInc - self.minInc + 1) + self.minInc
+	self.seq = rand64() % self.maxSeq
+    self.inc = rand64() % ffi_cast("int64_t", self.maxInc - self.minInc + 1) + ffi_cast("int64_t", self.minInc)
 end
 
 function _M:next()
@@ -74,7 +76,7 @@ function _M:next()
 		local seq, rem = self.seq, nil
 		for i = self.totalLen - 1, self.preLen, -1 do
 			rem = seq % base
-			seq = floor(seq / base)
+			seq = ffi_cast("int64_t", floor(seq / base))
 			str[i] = digitBytes[rem]
 		end
 	end
@@ -82,5 +84,19 @@ function _M:next()
 	return ffi.string(str, self.totalLen)
 end
 _M.__call = _M.next
+
+-- Test
+-- local n, total = 1, 0
+-- while n < 15001 do
+	-- local s, nid = 1, nuid()
+	-- --print("-- new nuid(#" .. n .. "): " .. nid())
+	-- while s < 1001 do
+		-- -- if s % 100 == 0 then print(s .. ":" .. nid())
+		-- -- else nid() end
+		-- nid()
+		-- s = s + 1
+	-- end
+	-- n = n + 1
+-- end
 
 return nuid
