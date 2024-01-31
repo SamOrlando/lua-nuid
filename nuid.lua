@@ -49,7 +49,7 @@ function _M:randomizePrefix()
 	end
 	local pre = ffi.new("char[?]", self.preLen + 1)
 	for i = 0, self.preLen - 1 do
-		pre[i] = digitBytes[tonumber(rand64() % base)]
+		pre[i] = digitBytes[rand() % base]
 	end
 	self.pre = ffi.string(pre, self.preLen + 1)
 end
@@ -66,9 +66,7 @@ function _M:next()
 			self:randomizePrefix()
 			self:resetSequential()
 		end
-	elseif self.preLen > 0 then
-		self:randomizePrefix()
-	end
+	else self:randomizePrefix()	end
 
 	local str = ffi.new("char[?]", self.totalLen + 1)
 	ffi.copy(str, self.pre)
@@ -77,7 +75,7 @@ function _M:next()
 		local seq, rem = self.seq, nil
 		for i = self.totalLen - 1, self.preLen, -1 do
 			rem = seq % base
-			seq = ffi_cast("int64_t", floor(seq / base))
+			seq = floor(seq / base)
 			str[i] = digitBytes[rem]
 		end
 	end
