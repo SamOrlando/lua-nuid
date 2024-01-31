@@ -35,7 +35,7 @@ print(generator())
 ```
 
 ```lua
---working example
+-- working example
 local mailbox_nuid = nuid()
 local mailbox_nuid_tail = nuid({preLen=8,seqLen=0})
 function nats.create_inbox() return concat({'_INBOX.', mailbox_nuid(),".",mailbox_nuid_tail()}) end
