@@ -1,4 +1,5 @@
-# Lua NUID Generator
+# Lua NATS NUID Generator
+https://github.com/nats-io/nuid
 
 A Lua module for generating highly performant, unique identifiers (NUIDs) using LuaJIT's FFI (Foreign Function Interface) for enhanced numerical precision and efficiency.
 
@@ -25,9 +26,19 @@ local nuid = require("nuid")
 -- Create a new NUID generator with default settings
 local generator = nuid()
 
--- Generate a new unique identifier
+-- Generate the next new unique identifier result
 local id = generator:next()
 print(id)
+
+-- Calling the generator will also produce the next result
+print(generator())
+```
+
+```lua
+--working example
+local mailbox_nuid = nuid()
+local mailbox_nuid_tail = nuid({preLen=8,seqLen=0})
+function nats.create_inbox() return concat({'_INBOX.', mailbox_nuid(),".",mailbox_nuid_tail()}) end
 ```
 
 ### Customization
