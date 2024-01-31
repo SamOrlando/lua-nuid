@@ -1,7 +1,3 @@
-Sure, here's a sample README for your Lua code, suitable for a GitHub repository:
-
----
-
 # Lua NUID Generator
 
 A Lua module for generating highly performant, unique identifiers (NUIDs) using LuaJIT's FFI (Foreign Function Interface) for enhanced numerical precision and efficiency.
