@@ -8,15 +8,14 @@ ffi.cdef[[
 	double floor(double x);
 ]]
 C.srand(ffi.cast("unsigned int", os.time()))
-
+local bit_lshift = require('bit').lshift
 local function rand() return C.rand() end
 local function floor(x) return C.floor(x) end
 local function rand64()
-    local high = ffi_cast("int64_t", rand()) * ffi_cast("int64_t", 2^32)  -- Shift high 32 bits
+    local high = bit_lshift(ffi_cast("int64_t", rand()), 32)
     local low = ffi_cast("int64_t", rand())
     return high + low
 end
-
 local concat = table.concat
 local tonumber = tonumber
 local digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -43,20 +42,19 @@ local function nuid(opts)
 end
 
 function _M:randomizePrefix()
-	if self.preLen < 1 then
-		self.pre = ""
-		return
+	if self.preLen < 1 then self.pre = ""
+	else
+		local pre = ffi.new("char[?]", self.preLen + 1)
+		for i = 0, self.preLen - 1 do
+			pre[i] = digitBytes[rand() % base]
+		end
+		self.pre = ffi.string(pre, self.preLen + 1)
 	end
-	local pre = ffi.new("char[?]", self.preLen + 1)
-	for i = 0, self.preLen - 1 do
-		pre[i] = digitBytes[tonumber(rand64() % base)]
-	end
-	self.pre = ffi.string(pre, self.preLen + 1)
 end
 
 function _M:resetSequential()
 	self.seq = rand64() % self.maxSeq
-    self.inc = rand() % (self.maxInc - self.minInc + 1) + self.minInc
+	self.inc = rand() % (self.maxInc - self.minInc + 1) + self.minInc
 end
 
 function _M:next()
@@ -66,9 +64,7 @@ function _M:next()
 			self:randomizePrefix()
 			self:resetSequential()
 		end
-	elseif self.preLen > 0 then
-		self:randomizePrefix()
-	end
+	else self:randomizePrefix()	end
 
 	local str = ffi.new("char[?]", self.totalLen + 1)
 	ffi.copy(str, self.pre)
@@ -77,7 +73,7 @@ function _M:next()
 		local seq, rem = self.seq, nil
 		for i = self.totalLen - 1, self.preLen, -1 do
 			rem = seq % base
-			seq = ffi_cast("int64_t", floor(seq / base))
+			seq = floor(seq / base)
 			str[i] = digitBytes[rem]
 		end
 	end
@@ -89,11 +85,11 @@ _M.__call = _M.next
 -- Test
 -- local n, total = 1, 0
 -- while n < 15001 do
-	-- local s, nid = 1, nuid()
+	-- local s, nid = 1, nuid({seqLen=8,preLen=8})
 	-- --print("-- new nuid(#" .. n .. "): " .. nid())
 	-- while s < 1001 do
-		-- -- if s % 100 == 0 then print(s .. ":" .. nid())
-		-- -- else nid() end
+		-- --if s % 100 == 0 then print(s .. ":" .. nid())
+		-- --else nid() end
 		-- nid()
 		-- s = s + 1
 	-- end
