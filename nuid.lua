@@ -4,7 +4,7 @@ local ffi_cast = ffi.cast
 ffi.cdef[[
 	void srand(unsigned int seed);
 	int rand(void);
-	typedef long long int64_t;
+	typedef unsigned long long uint64_t;
 	double floor(double x);
 ]]
 C.srand(ffi.cast("unsigned int", os.time()))
@@ -12,8 +12,8 @@ local bit_lshift = require('bit').lshift
 local function rand() return C.rand() end
 local function floor(x) return C.floor(x) end
 local function rand64()
-    local high = bit_lshift(ffi_cast("int64_t", rand()), 32)
-    local low = ffi_cast("int64_t", rand())
+    local high = bit_lshift(ffi_cast("uint64_t", rand()), 32)
+    local low = ffi_cast("uint64_t", rand())
     return high + low
 end
 local concat = table.concat
@@ -34,7 +34,7 @@ local function nuid(opts)
 		minInc = opts.minInc or 33,
 		maxInc = opts.maxInc or 333,
 	}, _M)
-	o.maxSeq = ffi.new("int64_t", base ^ o.seqLen)
+	o.maxSeq = ffi.new("uint64_t", base ^ o.seqLen)
 	o.totalLen = o.preLen + o.seqLen
 	o:resetSequential()
 	o:randomizePrefix()
@@ -42,15 +42,14 @@ local function nuid(opts)
 end
 
 function _M:randomizePrefix()
-	if self.preLen < 1 then
-		self.pre = ""
-		return
+	if self.preLen < 1 then self.pre = ""
+	else
+		local pre = ffi.new("char[?]", self.preLen + 1)
+		for i = 0, self.preLen - 1 do
+			pre[i] = digitBytes[rand() % base]
+		end
+		self.pre = ffi.string(pre, self.preLen + 1)
 	end
-	local pre = ffi.new("char[?]", self.preLen + 1)
-	for i = 0, self.preLen - 1 do
-		pre[i] = digitBytes[rand() % base]
-	end
-	self.pre = ffi.string(pre, self.preLen + 1)
 end
 
 function _M:resetSequential()
