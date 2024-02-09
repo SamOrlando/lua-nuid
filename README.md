@@ -1,4 +1,4 @@
-# Lua NATS NUID Generator
+# NATS Unique Identifiers
 https://github.com/nats-io/nuid
 
 A Lua module for generating highly performant, unique identifiers (NUIDs) using LuaJIT's FFI (Foreign Function Interface) for enhanced numerical precision and efficiency.
