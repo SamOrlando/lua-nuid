@@ -1,74 +1,86 @@
-# Lua NATS NUID Generator
-https://github.com/nats-io/nuid
+# lua-nuid
 
-A Lua module for generating highly performant, unique identifiers (NUIDs) using LuaJIT's FFI (Foreign Function Interface) for enhanced numerical precision and efficiency.
+Pure-Lua port of the [NATS NUID](https://github.com/nats-io/nuid) unique
+identifier generator. Works on **Lua 5.1, 5.2, 5.3, 5.4 and LuaJIT** — no FFI
+or C modules required.
 
-## Features
+A NUID is 22 base-62 characters:
 
-- Generates unique identifiers combining random and sequential components.
-- Leverages LuaJIT's FFI for 64-bit arithmetic, ensuring precise handling of large numbers.
-- Customizable length for the random prefix and sequential part.
-- Efficient string handling and generation.
-
-## Requirements
-
-- LuaJIT
+* 12 characters of random prefix (read from `/dev/urandom` when available)
+* 10 characters of a sequence starting at a random value and advancing by a
+  random increment in `[33, 333)`
+* when the sequence overflows `62^10`, the prefix is re-randomized and the
+  sequence and increment are reset (identical to the Go reference)
 
 ## Installation
 
-Simply include the `nuid.lua` file in your Lua project and require it in your script.
+```sh
+luarocks make nuid-1.0.0-1.rockspec   # or just copy nuid.lua into your project
+```
 
 ## Usage
 
 ```lua
 local nuid = require("nuid")
 
--- Create a new NUID generator with default settings
-local generator = nuid()
+local gen = nuid()            -- or nuid.new()
+print(gen:next())             -- e.g. nataW3t1nKzs3iOIofD1Om
+print(gen())                  -- generators are callable
 
--- Generate the next new unique identifier result
-local id = generator:next()
-print(id)
-
--- Calling the generator will also produce the next result
-print(generator())
-  -- nataW3t1nKzs3iOIofD1Om
+print(nuid.next())            -- shared default generator, like Go's nuid.Next()
 ```
 
-```lua
--- working example
-local mailbox_nuid = nuid()
-local mailbox_nuid_tail = nuid({preLen=8,seqLen=0})
-function nats.create_inbox() return concat({'_INBOX.', mailbox_nuid(),".",mailbox_nuid_tail()}) end
+Inbox example:
 
+```lua
+local mailbox_nuid      = nuid()
+local mailbox_nuid_tail = nuid({ preLen = 8, seqLen = 0 })   -- pure random
+local function create_inbox()
+  return "_INBOX." .. mailbox_nuid() .. "." .. mailbox_nuid_tail()
+end
 -- _INBOX.AKVlRx7reWcacdtRxHYjnc.nNWzXCMR
--- _INBOX.AKVlRx7reWcacdtRxHYjhu.WxP4Bh8S
--- _INBOX.AKVlRx7reWcacdtRxHYjcC.9bOjBFdf
 ```
 
-### Customization
-
-You can customize the length of the prefix and sequential part as well as the minimum and maximum increment values.
+### Options
 
 ```lua
-local generator = nuid({
-    preLen = 12,  -- Length of the random prefix
-    seqLen = 10,  -- Length of the sequential part
-    minInc = 33,  -- Minimum increment for the sequential part
-    maxInc = 333  -- Maximum increment for the sequential part
+nuid({
+  preLen = 12,  -- random prefix length (>= 0)
+  seqLen = 10,  -- sequence length (0..16); 0 = new random prefix every call
+  minInc = 33,  -- minimum increment (inclusive)
+  maxInc = 333, -- maximum increment (exclusive)
 })
 ```
 
-## API Reference
+Invalid options raise an error.
 
-- `nuid(opts)`: Creates a new NUID generator. `opts` is an optional table for customization.
-- `generator:next()`: Generates and returns a new unique identifier.
+## API
 
-## How It Works
+| Call | Description |
+|---|---|
+| `nuid(opts)` / `nuid.new(opts)` | create a generator |
+| `gen:next()` / `gen()` | next ID |
+| `gen:randomizePrefix()` | pick a new random prefix |
+| `gen:resetSequential()` | pick a new random sequence start and increment |
+| `nuid.next()` | next ID from a lazily created shared generator |
 
-The module utilizes LuaJIT's FFI to interface with C standard library functions for random number generation and floor operation. It combines a random prefix (generated using a 64-bit random number) with a sequential number that increments with each call to `:next()`. This approach ensures a high degree of uniqueness for each generated identifier.
+Generators are not safe to share between OS threads (Lua states are
+single-threaded anyway); they are fine to share between coroutines.
+
+## Implementation notes
+
+`62^10` exceeds the 2^53 integer precision of doubles, so the sequence is
+held as two exact halves (`hi`, `lo`, base `62^5`). This keeps the math exact
+on every Lua version without FFI `uint64_t`. Only the low half is re-encoded
+on most calls; the high half's string is cached.
+
+## Tests
+
+```sh
+for l in lua5.1 lua5.2 lua5.3 lua5.4 luajit; do $l tests/test_nuid.lua; done
+# or: luarocks test
+```
 
 ## License
 
-This module is available under the [MIT License](LICENSE).
-
+[MIT](LICENSE)
