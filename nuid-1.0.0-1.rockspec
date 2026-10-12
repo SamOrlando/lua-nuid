@@ -2,7 +2,7 @@ rockspec_format = "3.0"
 package = "nuid"
 version = "1.0.0-1"
 source = {
-   url = "git+https://git.nodex.net:9002/odi/lua-nuid.git",
+   url = "git+https://github.com/SamOrlando/lua-nuid.git",
    tag = "v1.0.0",
 }
 description = {
@@ -12,7 +12,7 @@ Port of nats-io/nuid: 22-character base-62 IDs made of a 12-char random
 prefix and a 10-char randomized-increment sequence. Pure Lua, works on
 Lua 5.1-5.4 and LuaJIT.
 ]],
-   homepage = "https://git.nodex.net:9002/odi/lua-nuid",
+   homepage = "https://github.com/SamOrlando/lua-nuid",
    license = "MIT",
    labels = { "nats", "uuid", "id" },
 }
