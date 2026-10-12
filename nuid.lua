@@ -1,127 +1,202 @@
 -- nuid.lua
--- High-performance NATS Unique Identifier (NUID) generator for LuaJIT.
+-- NATS Unique Identifier (NUID) generator in pure Lua.
 --
--- 12-char crypto-style prefix (entropy-friendly) + 10-char sequential
--- counter that advances by a pseudo-random increment.  Total 22 base-62
--- characters.  Matches the algorithm used by nats-io/nuid (Go reference).
+-- Port of https://github.com/nats-io/nuid (Go reference):
+--   * 12 base-62 characters of random prefix (from a CSPRNG when available)
+--   * 10 base-62 characters of a sequence that starts at a random value and
+--     advances by a random increment in [minInc, maxInc)
+--   * when the sequence reaches 62^seqLen the prefix is re-randomized and
+--     the sequence/increment are reset
+--   => 22 characters total
 --
--- Configurable lengths are retained for flexibility; defaults match the
--- official implementation.
+-- Works on Lua 5.1, 5.2, 5.3, 5.4 and LuaJIT. No C/FFI dependency.
+--
+-- 62^10 (~8.4e17) does not fit in a double's 53-bit mantissa, and Lua 5.1 /
+-- LuaJIT have no native 64-bit integers, so the sequence is kept as two
+-- halves (hi, lo) in base 62^loLen. Every value stays well below 2^53,
+-- so arithmetic is exact on every Lua version.
 
-local ffi = require("ffi")
-local bit = require("bit")
-local C   = ffi.C
+local floor      = math.floor
+local byte, sub  = string.byte, string.sub
+local concat     = table.concat
+local io_open    = io.open
+local setmetatable, type, error, tostring = setmetatable, type, error, tostring
 
-ffi.cdef[[
-    void srand(unsigned int seed);
-    int  rand(void);
-    typedef unsigned long long uint64_t;
-    double floor(double x);
-]]
+local DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+local BASE   = 62
 
--- Mix time + a little extra entropy (still not cryptographic, but better
--- than a single os.time() call).
-C.srand(ffi.cast("unsigned int",
-    (os.time() % 0x7fffffff) * 1103515245 + (os.clock() * 1e6)))
+local DIGIT = {}            -- [0..61] -> one-character string
+for i = 0, BASE - 1 do DIGIT[i] = sub(DIGITS, i + 1, i + 1) end
 
-local bit_lshift = bit.lshift
-local ffi_cast   = ffi.cast
-local ffi_string = ffi.string
-local ffi_copy   = ffi.copy
-local floor      = C.floor
+local MAX_HALF = 8          -- 62^8 ~ 2.2e14 < 2^53; caps seqLen at 16
 
-local function rand()  return C.rand() end
+---------------------------------------------------------------------------
+-- Randomness
+---------------------------------------------------------------------------
+-- Prefer the OS CSPRNG (like Go's crypto/rand). Bytes are read in blocks so
+-- the hot path (pure-random mode, seqLen = 0) does not hit the OS each call.
+local urandom = io_open and io_open("/dev/urandom", "rb")
+local rbuf, rpos, RBLOCK = "", 1, 4096
 
--- 64-bit value from two 31-bit C.rand() calls
-local function rand64()
-    local high = bit_lshift(ffi_cast("uint64_t", rand()), 32)
-    local low  = ffi_cast("uint64_t", rand())
-    return high + low
+local function seed_fallback()
+    -- Lua 5.4 seeds math.random randomly at startup; for older versions mix
+    -- several weak sources rather than a lone os.time().
+    if not _VERSION:find("5%.4") then
+        local addr = tonumber(tostring({}):match("0x(%x+)") or "0", 16) or 0
+        math.randomseed((os.time() + floor(os.clock() * 1e6) + addr) % 2147483647)
+    end
+end
+if not urandom then seed_fallback() end
+
+local random = math.random
+
+local function rand_byte()
+    if urandom then
+        if rpos > #rbuf then
+            rbuf = urandom:read(RBLOCK)
+            if not rbuf or #rbuf == 0 then
+                urandom, rbuf = nil, ""
+                seed_fallback()
+                return random(0, 255)
+            end
+            rpos = 1
+        end
+        local b = byte(rbuf, rpos)
+        rpos = rpos + 1
+        return b
+    end
+    return random(0, 255)
 end
 
-local digits     = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-local base       = #digits          -- 62
-local digitBytes = ffi.new("uint8_t[?]", base)
-ffi_copy(digitBytes, digits)
+-- Uniform integer in [0, n), n <= 2^48. Uses rejection sampling (no bias).
+local function rand_below(n)
+    if n <= 1 then return 0 end
+    local range, nbytes = 256, 1
+    while range < n do range, nbytes = range * 256, nbytes + 1 end
+    local limit = range - range % n
+    while true do
+        local v = 0
+        for _ = 1, nbytes do v = v * 256 + rand_byte() end
+        if v < limit then return v % n end
+    end
+end
 
-local _M = {}
-_M.__index = _M
+---------------------------------------------------------------------------
+-- Generator
+---------------------------------------------------------------------------
+local Nuid = {}
+Nuid.__index = Nuid
 
-local function nuid(opts)
+-- Encode non-negative integer v as exactly len base-62 digits (big-endian).
+local tmp = {}
+local function encode(v, len)
+    for i = len, 1, -1 do
+        local q = floor(v / BASE)
+        tmp[i] = DIGIT[v - q * BASE]
+        v = q
+    end
+    return concat(tmp, "", 1, len)
+end
+
+local function pow62(n)
+    local r = 1
+    for _ = 1, n do r = r * BASE end
+    return r
+end
+
+local function new(opts)
     if type(opts) ~= "table" then opts = {} end
-
     local preLen = opts.preLen or 12
     local seqLen = opts.seqLen or 10
     local minInc = opts.minInc or 33
-    local maxInc = opts.maxInc or 333   -- exclusive upper bound in official Go
+    local maxInc = opts.maxInc or 333   -- exclusive, as in Go
 
-    -- Exact 62^seqLen as uint64 (successive multiply, no float power)
-    local maxSeq = ffi.new("uint64_t", 1)
-    for _ = 1, seqLen do
-        maxSeq = maxSeq * base
+    if preLen < 0 or seqLen < 0 or preLen % 1 ~= 0 or seqLen % 1 ~= 0 then
+        error("nuid: preLen and seqLen must be non-negative integers", 2)
+    end
+    if seqLen > 2 * MAX_HALF then
+        error("nuid: seqLen must be <= " .. (2 * MAX_HALF), 2)
+    end
+    if seqLen > 0 and not (minInc >= 1 and maxInc > minInc) then
+        error("nuid: require 1 <= minInc < maxInc", 2)
     end
 
-    local totalLen = preLen + seqLen
-    local o = setmetatable({
-        preLen   = preLen,
-        seqLen   = seqLen,
-        minInc   = minInc,
-        maxInc   = maxInc,
-        maxSeq   = maxSeq,
-        totalLen = totalLen,
-        -- single reusable output buffer (biggest perf win)
-        buf      = ffi.new("char[?]", totalLen + 1),
-    }, _M)
-
-    o:resetSequential()
-    o:randomizePrefix()
-    return o
+    local loLen = seqLen - floor(seqLen / 2)   -- lo gets the larger half
+    local hiLen = seqLen - loLen
+    local self = setmetatable({
+        preLen = preLen,
+        seqLen = seqLen,
+        minInc = minInc,
+        maxInc = maxInc,
+        totalLen = preLen + seqLen,
+        loLen = loLen,
+        hiLen = hiLen,
+        loMax = pow62(loLen),
+        hiMax = pow62(hiLen),
+        pre = "",
+    }, Nuid)
+    self:randomizePrefix()
+    self:resetSequential()
+    return self
 end
 
-function _M:randomizePrefix()
-    local preLen = self.preLen
-    local buf    = self.buf
-    if preLen < 1 then return end
-    for i = 0, preLen - 1 do
-        buf[i] = digitBytes[rand() % base]
+function Nuid:randomizePrefix()
+    local n = self.preLen
+    for i = 1, n do tmp[i] = DIGIT[rand_byte() % BASE] end   -- same as Go
+    self.pre = concat(tmp, "", 1, n)
+end
+
+function Nuid:resetSequential()
+    if self.seqLen == 0 then return end
+    self.hi  = rand_below(self.hiMax)
+    self.lo  = rand_below(self.loMax)
+    self.inc = self.minInc + rand_below(self.maxInc - self.minInc)
+    self.hiStr = encode(self.hi, self.hiLen)
+end
+
+-- Current sequence value as a number (exact only while < 2^53; informational).
+function Nuid:seqValue()
+    return (self.hi or 0) * (self.loMax or 1) + (self.lo or 0)
+end
+
+function Nuid:next()
+    if self.seqLen == 0 then          -- pure random mode
+        self:randomizePrefix()
+        return self.pre
     end
-end
-
-function _M:resetSequential()
-    -- Official range is [minInc, maxInc) → 33 … 332
-    self.seq = rand64() % self.maxSeq
-    self.inc = (rand() % (self.maxInc - self.minInc)) + self.minInc
-end
-
-function _M:next()
-    local seqLen = self.seqLen
-    local buf    = self.buf
-    local total  = self.totalLen
-    local preLen = self.preLen
-
-    if seqLen > 0 then
-        self.seq = self.seq + self.inc
-        if self.seq >= self.maxSeq then
+    local lo = self.lo + self.inc
+    local loMax = self.loMax
+    if lo >= loMax then
+        local carry = floor(lo / loMax)
+        lo = lo - carry * loMax
+        local hi = self.hi + carry
+        if hi >= self.hiMax then       -- rollover: new prefix + new sequence
             self:randomizePrefix()
             self:resetSequential()
+            lo = self.lo
+        else
+            self.hi = hi
+            self.hiStr = encode(hi, self.hiLen)
         end
-
-        -- Encode sequential counter (low digits first)
-        local seq = self.seq
-        for i = total - 1, preLen, -1 do
-            local rem = tonumber(seq % base)
-            seq = floor(seq / base)          -- integer division via floor
-            buf[i] = digitBytes[rem]
-        end
-    else
-        -- pure random prefix mode
-        self:randomizePrefix()
     end
-
-    return ffi_string(buf, total)
+    self.lo = lo
+    return self.pre .. self.hiStr .. encode(lo, self.loLen)
 end
 
--- Allow `nid()` syntax
-_M.__call = _M.next
+Nuid.__call = Nuid.next
 
-return nuid
+-- Module: callable for backward compatibility (`require("nuid")(opts)`).
+local M = setmetatable({
+    new = new,
+    _VERSION = "1.0.0",
+    DIGITS = DIGITS,
+}, { __call = function(_, opts) return new(opts) end })
+
+-- Shared default generator, mirroring Go's nuid.Next().
+local global
+function M.next()
+    global = global or new()
+    return global:next()
+end
+
+return M
