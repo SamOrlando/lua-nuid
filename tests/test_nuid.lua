@@ -131,5 +131,39 @@ test("prefix digit distribution roughly uniform", function()
     eq(n, 62)
 end)
 
+local has_ffi, ffi = pcall(require, "ffi")
+if has_ffi then
+    test("fork does not repeat generator or global ids", function()
+        ffi.cdef[[
+            int fork(void);
+            int waitpid(int pid, int *status, int options);
+        ]]
+        local g = nuid({ preLen = 16, seqLen = 0 })
+        local seq = nuid({ preLen = 12, seqLen = 10 })
+        nuid.next()
+        local path = os.tmpname()
+        local pid = tonumber(ffi.C.fork())
+        if not pid or pid < 0 then error("fork failed") end
+        if pid == 0 then
+            local f = assert(io.open(path, "w"))
+            f:write(g(), "\n", g(), "\n", seq(), "\n", seq(), "\n", nuid.next(), "\n", nuid.next(), "\n")
+            f:close()
+            os.exit(0)
+        end
+        local status = ffi.new("int[1]")
+        ffi.C.waitpid(pid, status, 0)
+        local parent = { g(), g(), seq(), seq(), nuid.next(), nuid.next() }
+        local f = assert(io.open(path))
+        local child = {}
+        for line in f:lines() do child[#child + 1] = line end
+        f:close()
+        os.remove(path)
+        eq(#child, 6, "child ids")
+        for i = 1, 6 do
+            assert(parent[i] ~= child[i], "repeated " .. parent[i])
+        end
+    end)
+end
+
 print(string.format("%s%s: %d passed, %d failed", _VERSION, jit and (" / " .. jit.version) or "", pass, fail))
 os.exit(fail == 0 and 0 or 1)

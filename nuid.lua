@@ -9,7 +9,10 @@
 --     the sequence/increment are reset
 --   => 22 characters total
 --
--- Works on Lua 5.1, 5.2, 5.3, 5.4 and LuaJIT. No C/FFI dependency.
+-- Works on Lua 5.1, 5.2, 5.3, 5.4 and LuaJIT. No compiled module.
+-- LuaJIT uses ffi.getpid when ffi is present; other builds read /proc/self/stat.
+-- After fork, a new pid drops the copied /dev/urandom buffer and re-randomizes
+-- each generator on its next id, so workers do not share NUIDs or inbox prefixes.
 --
 -- 62^10 (~8.4e17) does not fit in a double's 53-bit mantissa, and Lua 5.1 /
 -- LuaJIT have no native 64-bit integers, so the sequence is kept as two
@@ -38,17 +41,56 @@ local MAX_HALF = 8          -- 62^8 ~ 2.2e14 < 2^53; caps seqLen at 16
 local urandom = io_open and io_open("/dev/urandom", "rb")
 local rbuf, rpos, RBLOCK = "", 1, 4096
 
-local function seed_fallback()
+local function seed_fallback(pid)
     -- Lua 5.4 seeds math.random randomly at startup; for older versions mix
     -- several weak sources rather than a lone os.time().
     if not _VERSION:find("5%.4") then
         local addr = tonumber(tostring({}):match("0x(%x+)") or "0", 16) or 0
-        math.randomseed((os.time() + floor(os.clock() * 1e6) + addr) % 2147483647)
+        math.randomseed((os.time() + floor(os.clock() * 1e6) + addr + (pid or 0)) % 2147483647)
     end
 end
 if not urandom then seed_fallback() end
 
 local random = math.random
+
+-- fork copies this buffer and Lua's file buffer. A new pid must read again.
+-- /proc/self opened in the parent stays pointed at the parent, so open it each call.
+local getpid_fn
+local ffi_ok, ffi_mod = pcall(require, "ffi")
+if ffi_ok then
+    ffi_mod.cdef[[ int getpid(void); ]]
+    getpid_fn = ffi_mod.C.getpid
+end
+local seeded_pid
+
+local function current_pid()
+    if getpid_fn then return tonumber(getpid_fn()) end
+    local f = io_open and io_open("/proc/self/stat", "r") or nil
+    if not f then return nil end
+    local line = f:read("*l")
+    f:close()
+    return line and tonumber(line:match("^(%d+)"))
+end
+
+local function reopen_urandom()
+    if urandom then pcall(urandom.close, urandom) end
+    urandom = io_open and io_open("/dev/urandom", "rb") or nil
+    rbuf, rpos = "", 1
+end
+
+local function ensure_process()
+    local pid = current_pid()
+    if pid == nil then return nil end
+    if seeded_pid == nil then
+        seeded_pid = pid
+        return pid
+    end
+    if seeded_pid == pid then return pid end
+    reopen_urandom()
+    seed_fallback(pid)
+    seeded_pid = pid
+    return pid
+end
 
 local function rand_byte()
     if urandom then
@@ -56,7 +98,7 @@ local function rand_byte()
             rbuf = urandom:read(RBLOCK)
             if not rbuf or #rbuf == 0 then
                 urandom, rbuf = nil, ""
-                seed_fallback()
+                seed_fallback(seeded_pid)
                 return random(0, 255)
             end
             rpos = 1
@@ -134,6 +176,7 @@ local function new(opts)
         loMax = pow62(loLen),
         hiMax = pow62(hiLen),
         pre = "",
+        _pid = ensure_process(),
     }, Nuid)
     self:randomizePrefix()
     self:resetSequential()
@@ -141,6 +184,7 @@ local function new(opts)
 end
 
 function Nuid:randomizePrefix()
+    ensure_process()
     local n = self.preLen
     for i = 1, n do tmp[i] = DIGIT[rand_byte() % BASE] end   -- same as Go
     self.pre = concat(tmp, "", 1, n)
@@ -160,6 +204,13 @@ function Nuid:seqValue()
 end
 
 function Nuid:next()
+    -- A generator built before fork still holds the parent's prefix and sequence.
+    local pid = ensure_process()
+    if pid ~= nil and self._pid ~= pid then
+        self._pid = pid
+        self:randomizePrefix()
+        self:resetSequential()
+    end
     if self.seqLen == 0 then          -- pure random mode
         self:randomizePrefix()
         return self.pre
