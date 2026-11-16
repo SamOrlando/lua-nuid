@@ -257,7 +257,7 @@ Nuid.__call = Nuid.next
 -- Module: callable for backward compatibility (`require("nuid")(opts)`).
 local M = setmetatable({
     new = new,
-    _VERSION = "1.0.0",
+    _VERSION = "1.0.1",
     DIGITS = DIGITS,
 }, { __call = function(_, opts) return new(opts) end })
 

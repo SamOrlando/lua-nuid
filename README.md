@@ -14,8 +14,16 @@ A NUID is 22 base-62 characters:
 
 ## Installation
 
+From [LuaRocks](https://luarocks.org/modules/samorlando/nuid):
+
 ```sh
-luarocks make nuid-1.0.0-1.rockspec   # or just copy nuid.lua into your project
+luarocks install nuid
+```
+
+From a clone:
+
+```sh
+luarocks make nuid-1.0.1-1.rockspec   # or just copy nuid.lua into your project
 ```
 
 ## Usage
