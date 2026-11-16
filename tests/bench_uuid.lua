@@ -3,9 +3,10 @@
 -- The rock named uuid (Tieske) is second at 1,465,986 and is not this run.
 --
 -- lats.nuid is this module (lats-lua/modules/nuid.lua -> lua-nuid/nuid.lua).
--- The four rows are the preLen/seqLen choices around a 122-bit UUID v4:
+-- The first row is nuid() with the module's default preLen and seqLen.
+-- The other rows are the preLen/seqLen choices around a 122-bit UUID v4:
 --   12+8  (20 chars, 119.08 bits), 12+9 and 11+10 (21 chars, 125.04 bits),
---   12+10 (22 chars, 130.99 bits, the default).
+--   12+10 (22 chars, 130.99 bits).
 --
 -- Run from the repo: luajit tests/bench_uuid.lua
 -- Needs lua-resty-jit-uuid on package.path (luarocks install --local lua-resty-jit-uuid).
@@ -85,12 +86,24 @@ local specs = {
     { pre = 12, seq = 10 },
 }
 
-local rows = {}
+local default_gen = nuid()
+local rows = {
+    {
+        name = "nuid default",
+        note = string.format("nuid(), preLen %d, seqLen %d", default_gen.preLen, default_gen.seqLen),
+        bits = (default_gen.preLen + default_gen.seqLen) * LOG2_62,
+        fn = function() return default_gen() end,
+        check = function(id)
+            return #id == default_gen.preLen + default_gen.seqLen
+                and id:match("^[0-9A-Za-z]+$") ~= nil
+        end,
+    },
+}
 for i = 1, #specs do
     local spec = specs[i]
     local gen = nuid({ preLen = spec.pre, seqLen = spec.seq })
     local width = spec.pre + spec.seq
-    rows[i] = {
+    rows[#rows + 1] = {
         name = string.format("nuid %d+%d", spec.pre, spec.seq),
         note = string.format("%d char prefix, %d char sequence", spec.pre, spec.seq),
         bits = width * LOG2_62,
@@ -156,7 +169,7 @@ for i = 1, #results - 1 do
     print(string.format("%s is %.2fx the uuid v4 rate (%.1f ns vs %.1f ns) at %.2f bits against 122.",
         r.name, base.ns / r.ns, r.ns, base.ns, r.bits))
 end
-print("Each nuid row is one generator, called like lats.nuid({preLen=, seqLen=}).")
+print("nuid default is nuid() with no options. The other nuid rows pass preLen and seqLen.")
 print("uuid v4 is 16 bytes of math.random with version and variant bits, formatted as 36 hex characters. uuid.seed() ran once, outside the loop.")
 
 os.exit(failed == 0 and 0 or 1)

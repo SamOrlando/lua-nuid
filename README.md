@@ -63,9 +63,15 @@ Invalid options raise an error.
 | `gen:randomizePrefix()` | pick a new random prefix |
 | `gen:resetSequential()` | pick a new random sequence start and increment |
 | `nuid.next()` | next ID from a lazily created shared generator |
+| `nuid.seed()` | reseed every live generator after `fork` |
 
 Generators are not safe to share between OS threads (Lua states are
 single-threaded anyway); they are fine to share between coroutines.
+
+`fork` copies every generator and the `/dev/urandom` buffer. Call
+`nuid.seed()` in the child before the next id. That reopens the random source
+and re-randomizes each live generator. A child that skips it repeats the
+parent's ids.
 
 ## Implementation notes
 
@@ -80,6 +86,37 @@ on most calls; the high half's string is cached.
 for l in lua5.1 lua5.2 lua5.3 lua5.4 luajit; do $l tests/test_nuid.lua; done
 # or: luarocks test
 ```
+
+## Benchmark
+
+`tests/bench_uuid.lua` times sequential NUIDs against
+[lua-resty-jit-uuid](https://luarocks.org/modules/thibaultcha/lua-resty-jit-uuid)
+0.0.7, the most-downloaded UUID rock on LuaRocks (2,845,716 downloads).
+UUID v4 has 122 bits of unique data. Each base-62 character holds 5.954 bits,
+so 20 characters are 119.08 bits and 21 characters are 125.04 bits.
+
+```sh
+luarocks install lua-resty-jit-uuid
+luajit tests/bench_uuid.lua
+```
+
+One run on LuaJIT 2.1.1724512491. Each figure is the median of 7 wall-time
+rounds of 1,000,000 ids after 20,000 warmup calls. A separate sample of
+200,000 ids had 0 collisions for every generator.
+
+| Generator | bits | ns/id | ids/sec | chars | vs UUID v4 |
+|---|---:|---:|---:|---:|---:|
+| `nuid()` default | 130.99 | 127.5 | 7,841,297 | 22 | 4.69× |
+| `nuid` 12+8 | 119.08 | 125.6 | 7,961,890 | 20 | 4.76× |
+| `nuid` 12+9 | 125.04 | 151.9 | 6,583,046 | 21 | 3.94× |
+| `nuid` 11+10 | 125.04 | 152.1 | 6,572,733 | 21 | 3.93× |
+| `nuid` 12+10 | 130.99 | 150.8 | 6,630,888 | 22 | 3.97× |
+| UUID v4 | 122.00 | 598.2 | 1,671,680 | 36 | 1× |
+
+`nuid()` takes the module defaults, `preLen` 12 and `seqLen` 10, which is the
+same generator as the `12+10` row. A head-to-head of only those two stayed
+within 126–135 ns/id. The wider gap in the table is from running every row in
+one process. `12+8` stops short of 122 bits. `12+9` and `11+10` both clear it.
 
 ## License
 
