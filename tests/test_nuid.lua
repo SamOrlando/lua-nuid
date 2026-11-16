@@ -120,6 +120,17 @@ test("invalid options raise", function()
     assert(not pcall(nuid, { minInc = 10, maxInc = 10 }))
 end)
 
+test("seed reseeds every live generator", function()
+    local a = nuid({ preLen = 12, seqLen = 4 })
+    local b = nuid({ preLen = 8, seqLen = 4 })
+    local ap, bp = a:next():sub(1, 12), b:next():sub(1, 8)
+    local gp = nuid.next():sub(1, 12)
+    nuid.seed()
+    assert(a:next():sub(1, 12) ~= ap, "generator a kept its prefix")
+    assert(b:next():sub(1, 8) ~= bp, "generator b kept its prefix")
+    assert(nuid.next():sub(1, 12) ~= gp, "global generator kept its prefix")
+end)
+
 test("prefix digit distribution roughly uniform", function()
     local g, counts = nuid({ preLen = 12, seqLen = 0 }), {}
     for _ = 1, 10000 do
@@ -145,6 +156,7 @@ if has_ffi then
         local pid = tonumber(ffi.C.fork())
         if not pid or pid < 0 then error("fork failed") end
         if pid == 0 then
+            nuid.seed()
             local f = assert(io.open(path, "w"))
             f:write(g(), "\n", g(), "\n", seq(), "\n", seq(), "\n", nuid.next(), "\n", nuid.next(), "\n")
             f:close()

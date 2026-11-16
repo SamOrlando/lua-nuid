@@ -10,9 +10,9 @@
 --   => 22 characters total
 --
 -- Works on Lua 5.1, 5.2, 5.3, 5.4 and LuaJIT. No compiled module.
--- LuaJIT uses ffi.getpid when ffi is present; other builds read /proc/self/stat.
--- After fork, a new pid drops the copied /dev/urandom buffer and re-randomizes
--- each generator on its next id, so workers do not share NUIDs or inbox prefixes.
+-- Fork copies a generator's prefix, sequence, and the /dev/urandom buffer.
+-- The child calls nuid.seed() before taking an id. That reopens the CSPRNG
+-- and re-randomizes every live generator, so workers do not share ids.
 --
 -- 62^10 (~8.4e17) does not fit in a double's 53-bit mantissa, and Lua 5.1 /
 -- LuaJIT have no native 64-bit integers, so the sequence is kept as two
@@ -53,43 +53,10 @@ if not urandom then seed_fallback() end
 
 local random = math.random
 
--- fork copies this buffer and Lua's file buffer. A new pid must read again.
--- /proc/self opened in the parent stays pointed at the parent, so open it each call.
-local getpid_fn
-local ffi_ok, ffi_mod = pcall(require, "ffi")
-if ffi_ok then
-    ffi_mod.cdef[[ int getpid(void); ]]
-    getpid_fn = ffi_mod.C.getpid
-end
-local seeded_pid
-
-local function current_pid()
-    if getpid_fn then return tonumber(getpid_fn()) end
-    local f = io_open and io_open("/proc/self/stat", "r") or nil
-    if not f then return nil end
-    local line = f:read("*l")
-    f:close()
-    return line and tonumber(line:match("^(%d+)"))
-end
-
 local function reopen_urandom()
     if urandom then pcall(urandom.close, urandom) end
     urandom = io_open and io_open("/dev/urandom", "rb") or nil
     rbuf, rpos = "", 1
-end
-
-local function ensure_process()
-    local pid = current_pid()
-    if pid == nil then return nil end
-    if seeded_pid == nil then
-        seeded_pid = pid
-        return pid
-    end
-    if seeded_pid == pid then return pid end
-    reopen_urandom()
-    seed_fallback(pid)
-    seeded_pid = pid
-    return pid
 end
 
 local function rand_byte()
@@ -98,7 +65,7 @@ local function rand_byte()
             rbuf = urandom:read(RBLOCK)
             if not rbuf or #rbuf == 0 then
                 urandom, rbuf = nil, ""
-                seed_fallback(seeded_pid)
+                seed_fallback()
                 return random(0, 255)
             end
             rpos = 1
@@ -146,6 +113,64 @@ local function pow62(n)
     return r
 end
 
+-- One concatenation for the low half. loLen is 1..8. Big-endian, same as encode.
+local function emit1(pre, hi, v)
+    return pre .. hi .. DIGIT[v % BASE]
+end
+local function emit2(pre, hi, v)
+    local a = v % BASE; v = floor(v / BASE)
+    return pre .. hi .. DIGIT[v % BASE] .. DIGIT[a]
+end
+local function emit3(pre, hi, v)
+    local a = v % BASE; v = floor(v / BASE)
+    local b = v % BASE; v = floor(v / BASE)
+    return pre .. hi .. DIGIT[v % BASE] .. DIGIT[b] .. DIGIT[a]
+end
+local function emit4(pre, hi, v)
+    local a = v % BASE; v = floor(v / BASE)
+    local b = v % BASE; v = floor(v / BASE)
+    local c = v % BASE; v = floor(v / BASE)
+    return pre .. hi .. DIGIT[v % BASE] .. DIGIT[c] .. DIGIT[b] .. DIGIT[a]
+end
+local function emit5(pre, hi, v)
+    local a = v % BASE; v = floor(v / BASE)
+    local b = v % BASE; v = floor(v / BASE)
+    local c = v % BASE; v = floor(v / BASE)
+    local d = v % BASE; v = floor(v / BASE)
+    return pre .. hi .. DIGIT[v % BASE] .. DIGIT[d] .. DIGIT[c] .. DIGIT[b] .. DIGIT[a]
+end
+local function emit6(pre, hi, v)
+    local a = v % BASE; v = floor(v / BASE)
+    local b = v % BASE; v = floor(v / BASE)
+    local c = v % BASE; v = floor(v / BASE)
+    local d = v % BASE; v = floor(v / BASE)
+    local e = v % BASE; v = floor(v / BASE)
+    return pre .. hi .. DIGIT[v % BASE] .. DIGIT[e] .. DIGIT[d] .. DIGIT[c] .. DIGIT[b] .. DIGIT[a]
+end
+local function emit7(pre, hi, v)
+    local a = v % BASE; v = floor(v / BASE)
+    local b = v % BASE; v = floor(v / BASE)
+    local c = v % BASE; v = floor(v / BASE)
+    local d = v % BASE; v = floor(v / BASE)
+    local e = v % BASE; v = floor(v / BASE)
+    local f = v % BASE; v = floor(v / BASE)
+    return pre .. hi .. DIGIT[v % BASE] .. DIGIT[f] .. DIGIT[e] .. DIGIT[d] .. DIGIT[c] .. DIGIT[b] .. DIGIT[a]
+end
+local function emit8(pre, hi, v)
+    local a = v % BASE; v = floor(v / BASE)
+    local b = v % BASE; v = floor(v / BASE)
+    local c = v % BASE; v = floor(v / BASE)
+    local d = v % BASE; v = floor(v / BASE)
+    local e = v % BASE; v = floor(v / BASE)
+    local f = v % BASE; v = floor(v / BASE)
+    local g = v % BASE; v = floor(v / BASE)
+    return pre .. hi .. DIGIT[v % BASE] .. DIGIT[g] .. DIGIT[f] .. DIGIT[e] .. DIGIT[d] .. DIGIT[c] .. DIGIT[b] .. DIGIT[a]
+end
+local EMIT = { emit1, emit2, emit3, emit4, emit5, emit6, emit7, emit8 }
+
+-- Weak, so a discarded generator can be collected. seed() copies the keys out first.
+local live = setmetatable({}, { __mode = "k" })
+
 local function new(opts)
     if type(opts) ~= "table" then opts = {} end
     local preLen = opts.preLen or 12
@@ -175,16 +200,16 @@ local function new(opts)
         hiLen = hiLen,
         loMax = pow62(loLen),
         hiMax = pow62(hiLen),
+        emit = EMIT[loLen],
         pre = "",
-        _pid = ensure_process(),
     }, Nuid)
     self:randomizePrefix()
     self:resetSequential()
+    live[self] = true
     return self
 end
 
 function Nuid:randomizePrefix()
-    ensure_process()
     local n = self.preLen
     for i = 1, n do tmp[i] = DIGIT[rand_byte() % BASE] end   -- same as Go
     self.pre = concat(tmp, "", 1, n)
@@ -204,13 +229,6 @@ function Nuid:seqValue()
 end
 
 function Nuid:next()
-    -- A generator built before fork still holds the parent's prefix and sequence.
-    local pid = ensure_process()
-    if pid ~= nil and self._pid ~= pid then
-        self._pid = pid
-        self:randomizePrefix()
-        self:resetSequential()
-    end
     if self.seqLen == 0 then          -- pure random mode
         self:randomizePrefix()
         return self.pre
@@ -231,7 +249,7 @@ function Nuid:next()
         end
     end
     self.lo = lo
-    return self.pre .. self.hiStr .. encode(lo, self.loLen)
+    return self.emit(self.pre, self.hiStr, lo)
 end
 
 Nuid.__call = Nuid.next
@@ -242,6 +260,21 @@ local M = setmetatable({
     _VERSION = "1.0.0",
     DIGITS = DIGITS,
 }, { __call = function(_, opts) return new(opts) end })
+
+-- Call in the child after fork, before the next id. Fork copied every generator.
+function M.seed()
+    reopen_urandom()
+    if not urandom then seed_fallback() end
+    local list, n = {}, 0
+    for g in pairs(live) do
+        n = n + 1
+        list[n] = g
+    end
+    for i = 1, n do
+        list[i]:randomizePrefix()
+        list[i]:resetSequential()
+    end
+end
 
 -- Shared default generator, mirroring Go's nuid.Next().
 local global
